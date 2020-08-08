@@ -50,7 +50,6 @@ namespace IdentityServer
                 .AddAspNetIdentity<IdentityUser>()
                 .AddCustomResourceOwnerPasswordValidaton();
 
-
             services.AddControllersWithViews();
         }
 

@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 
 namespace IdentityServer.Configurations.Configs
 {
-
     public class IdentityAppSettings
     {
         public List<IdentityResources> Resources { get; set; }
@@ -29,6 +28,4 @@ namespace IdentityServer.Configurations.Configs
         public string GrandType { get; set; }
         public List<string> Scopes { get; set; }
     }
-
-
 }

@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 
 namespace IdentityServer.Configurations.IdentityOverrides
 {
-
     public class ResourceOwnerPasswordValidator : IResourceOwnerPasswordValidator
     {
         private readonly UserManager<IdentityUser> _userManager;
@@ -40,7 +39,6 @@ namespace IdentityServer.Configurations.IdentityOverrides
                 {
                     Console.WriteLine(ex.ToString());
                 }
-
             }
         }
     }

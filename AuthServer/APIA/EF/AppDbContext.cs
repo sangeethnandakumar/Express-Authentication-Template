@@ -16,7 +16,7 @@ namespace APIA.EF
 
         }
 
-        //Database Tables
+        //Required database Tables
         public DbSet<UserDetails> UserDetails { get; set; }
     }
 }

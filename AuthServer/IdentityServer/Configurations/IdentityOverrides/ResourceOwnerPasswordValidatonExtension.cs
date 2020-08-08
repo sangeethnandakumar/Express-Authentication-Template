@@ -10,7 +10,6 @@ namespace IdentityServer.Configurations.IdentityOverrides
     {
         public static IIdentityServerBuilder AddCustomResourceOwnerPasswordValidaton(this IIdentityServerBuilder builder)
         {
-            //builder.Services.AddSingleton<IUserRepository, UserRepository>();
             builder.AddProfileService<ProfileService>();
             builder.AddResourceOwnerValidator<ResourceOwnerPasswordValidator>();
             return builder;

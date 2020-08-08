@@ -34,7 +34,6 @@ namespace APIA
                 config.UseSqlServer(Configuration.GetConnectionString("TIS"));
             });
 
-
             //Configure Identity
             services.AddIdentity<IdentityUser, IdentityRole>(config =>
             {
