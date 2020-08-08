@@ -1,6 +1,6 @@
 ## API To API Communication
 API to API Connection is federated through Identity Server. We are using Client Credential bearer token authentication model for this. For this we need to create 2 API projects. Let's say API-A and API-B. Then we need to create an Identity Server to sit in the middle and federate secure access. 
->>>> We need to communicate to an endpoint in API-B from API-A
+> We need to communicate to an endpoint in API-B from API-A
 ### Configure API Project A
 Create a new ASP.NET Core WebAPI Project. We call it it API-A
 ### Configure API Project B
@@ -9,12 +9,11 @@ Create a new ASP.NET Core WebAPI Project. We call it it API-B
 Create a new ASP.NET Core MVC Project. We call it it Identity Server
 
 
-
-## Create Identity Server 4 Project
-#### Configure Identity Server
+---
+# CONFIGURE IDENTITY SERVER
 Create a new ASP.NET Core MVC Project. We call it it Identity Server
 #### Install NuGet Packages
-```xml
+```text
 IdentityServer4
 IdentityServer4.AspNetIdentity
 Microsoft.AspNetCore.Identity.EntityFrameworkCore
@@ -348,3 +347,148 @@ namespace IdentityServer.Configurations.IdentityOverrides
     }
 }
 ```
+---
+# EntityFramework 6 MIGRATION
+Migration is required for persisting AspNetIdenity entries.
+1. We need to install Entity Framework Core 6 first. For that run the command `dotnet tool install --global dotnet-ef`
+2. Create a migration by going to the project folder and run `dotnet ef migrations add FirstMigration`
+3. Wait for build to finish
+4. Update database by running `dotnet ef database update`
+
+---
+# CONFIGURE API-A
+Create a new ASP.NET Core API Project. We call it it APIA
+### Configure AppSettings.json
+Add Authority & Audiance on API
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft": "Warning",
+      "Microsoft.Hosting.Lifetime": "Information"
+    }
+  },
+  "AllowedHosts": "*",
+
+  "ConnectionStrings": {
+    "TIS": "Server=DESKTOP-708EN4A\\SQLEXPRESS;Database=TIS;Trusted_Connection=True;"
+  },
+
+  "Security": {
+    "IdentityServer": {
+      "Authority": "https://localhost:44393/",
+      "Audiance": "ScxWebApi"
+    }
+  }
+}
+```
+### Setup Startup.cs
+Setup Startup.cs to work with Identity And EF 6
+```csharp
+public void ConfigureServices(IServiceCollection services)
+        {
+            //Configure EF6
+            services.AddDbContext<AppDbContext>(config =>
+            {
+                config.UseSqlServer(Configuration.GetConnectionString("TIS"));
+            });
+
+            //Configure Identity
+            services.AddIdentity<IdentityUser, IdentityRole>(config =>
+            {
+                config.Password.RequiredLength = 4;
+                config.Password.RequireDigit = false;
+                config.Password.RequiredUniqueChars = 0;
+                config.Password.RequireNonAlphanumeric = false;
+                config.Password.RequireUppercase = false;
+                config.SignIn.RequireConfirmedEmail = false;
+            })
+                .AddEntityFrameworkStores<AppDbContext>()
+                .AddDefaultTokenProviders();
+
+            //Identity Server Configuration
+            var identityAuthority = Configuration.GetSection("Security:IdentityServer:Authority").Value;
+            var identityScope = Configuration.GetSection("Security:IdentityServer:Audiance").Value;
+            services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+            }).AddJwtBearer("Bearer", config =>
+            {
+                config.Authority = identityAuthority;
+                config.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateAudience = true
+                };
+                config.Audience = identityScope;
+            });
+            
+            services.AddControllersWithViews();
+        }
+        
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        {
+            app.UseHttpsRedirection();
+            app.UseStaticFiles();
+
+            app.UseRouting();
+
+            app.UseAuthentication();
+            app.UseAuthorization();
+
+            app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapControllerRoute(
+                    name: "default",
+                    pattern: "{controller=Home}/{action=Index}/{id?}");
+            });
+        }
+```
+### Add DbContext class
+Add a DBContext class to work with EF 6
+*Also don't forget to add custom classes for these table declarations. They are used for EF 6 migrations and ORM mappings, LINQ and quering DB
+```csharp
+namespace APIA.EF
+{
+    public class AppDbContext : IdentityDbContext
+    {
+        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+        {
+        }
+
+        //Required database tables can come below as DbSet<T>
+    }
+}
+```
+### Controller
+Using the HttpContext you will get the logged in user's details
+```csharp
+namespace APIA.Controllers
+{
+    public class HomeController : Controller
+    {
+        private readonly UserManager<IdentityUser> _userManager;
+
+        public HomeController(UserManager<IdentityUser> userManager)
+        {
+            _userManager = userManager;
+        }
+
+        public IActionResult Index()
+        {
+            return View();
+        }
+
+        [Authorize]
+        public async Task<IActionResult> OpenBox()
+        {
+            // We will get all inoformations of logged in user here including claims
+            var userInfo = await _userManager.GetUserAsync(HttpContext.User);
+            return Ok("Yeahhh");
+        }
+    }
+}
+```
+> From this implementation (`_userManager.GetUserAsync(HttpContext.User);`). You will get information about the logged in client if he iuses ResourceOwner password validaton as GrandType
