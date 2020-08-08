@@ -358,6 +358,15 @@ Migration is required for persisting AspNetIdenity entries.
 ---
 # CONFIGURE API-A
 Create a new ASP.NET Core API Project. We call it it APIA
+#### Install NuGet Packages
+```text
+Microsoft.AspNetCore.Authentication.JwtBearer
+Microsoft.AspNet.Identity.Core
+Microsoft.AspNetCore.Identity.EntityFrameworkCore
+Microsoft.EntityFrameworkCore
+Microsoft.EntityFrameworkCore.Design
+Microsoft.EntityFrameworkCore.SqlServer
+```
 ### Configure AppSettings.json
 Add Authority & Audiance on API
 ```json
@@ -492,3 +501,110 @@ namespace APIA.Controllers
 }
 ```
 > From this implementation (`_userManager.GetUserAsync(HttpContext.User);`). You will get information about the logged in client if he iuses ResourceOwner password validaton as GrandType
+---
+# CONFIGURE API-B
+Lets configure API-B that can be used to call API-A. Most of the configurations are same. Let's create another WebAPI project that we can call APIB
+#### Install NuGet Packages
+```text
+Microsoft.AspNetCore.Authentication.JwtBearer
+IdentityModel
+```
+## AppSettings.json
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft": "Warning",
+      "Microsoft.Hosting.Lifetime": "Information"
+    }
+  },
+
+  "AllowedHosts": "*",
+
+  "Security": {
+    "IdentityServer": {
+      "Authority": "https://localhost:44393/",
+      "Audiance": "ScxWebApiDev"
+    }
+  }
+}
+```
+## Startup.cs
+In this API we are not using ASPNet Identity
+```csharp
+ public void ConfigureServices(IServiceCollection services)
+        {
+            //Identity Server Configuration
+            var identityAuthority = Configuration.GetSection("Security:IdentityServer:Authority").Value;
+            var identityScope = Configuration.GetSection("Security:IdentityServer:Audiance").Value;
+            services.AddAuthentication("Bearer").AddJwtBearer("Bearer", config =>
+            {
+                config.Authority = identityAuthority;
+                config.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateAudience = true
+                };
+                config.Audience = identityScope;
+            });
+
+            services.AddHttpClient();
+            services.AddControllersWithViews();
+        }
+
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        {
+            app.UseHttpsRedirection();
+            app.UseStaticFiles();
+
+            app.UseRouting();
+
+            app.UseAuthentication();
+            app.UseAuthorization();
+
+            app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapControllerRoute(
+                    name: "default",
+                    pattern: "{controller=Home}/{action=Index}/{id?}");
+            });
+        }
+```
+### Call API-A from API-B
+```csharp
+namespace APIB.Controllers
+{
+    public class HomeController : Controller
+    {
+        private readonly IHttpClientFactory _httpClient;
+
+        public HomeController(IHttpClientFactory httpClient)
+        {
+            _httpClient = httpClient;
+        }
+
+        public IActionResult Index()
+        {
+            return View();
+        }
+
+        public async Task<IActionResult> ShowSecret()
+        {
+            var authClient = _httpClient.CreateClient();
+            var discoveryDocument = await authClient.GetDiscoveryDocumentAsync("https://localhost:44393/");
+            var tokenResponse = await authClient.RequestClientCredentialsTokenAsync(new ClientCredentialsTokenRequest
+            {
+                Address = discoveryDocument.TokenEndpoint,
+                ClientId = "admin",
+                ClientSecret = "admin123",
+                Scope = "ScxWebApi"
+            });
+            var apiClient = _httpClient.CreateClient();
+            apiClient.SetBearerToken(tokenResponse.AccessToken);
+            var response = await apiClient.GetAsync("https://localhost:44354/Home/Secret");
+            var content = await response.Content.ReadAsStringAsync();
+            return View();
+        }
+    }
+}
+```
