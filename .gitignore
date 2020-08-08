@@ -1,0 +1,13 @@
+AuthServer/.vs/
+AuthServer/APIA/bin/
+AuthServer/APIA/obj/
+AuthServer/APIB/bin/
+AuthServer/APIB/obj/
+AuthServer/AuthServer/bin/
+AuthServer/AuthServer/obj/
+AuthServer/IdentityServer/bin/
+AuthServer/IdentityServer/obj/
+AuthServer/IdentityServer4HashGenerator/obj/
+AuthServer/IdentityServer4HashGenerator/bin/
+AuthServer/OpenIDConnect/bin/
+AuthServer/OpenIDConnect/obj/
