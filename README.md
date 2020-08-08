@@ -1,1 +1,350 @@
-# Express-Authentication-Template
+## API To API Communication
+API to API Connection is federated through Identity Server. We are using Client Credential bearer token authentication model for this. For this we need to create 2 API projects. Let's say API-A and API-B. Then we need to create an Identity Server to sit in the middle and federate secure access. 
+>>>> We need to communicate to an endpoint in API-B from API-A
+### Configure API Project A
+Create a new ASP.NET Core WebAPI Project. We call it it API-A
+### Configure API Project B
+Create a new ASP.NET Core WebAPI Project. We call it it API-B
+### Configure Identity Server
+Create a new ASP.NET Core MVC Project. We call it it Identity Server
+
+
+
+## Create Identity Server 4 Project
+#### Configure Identity Server
+Create a new ASP.NET Core MVC Project. We call it it Identity Server
+#### Install NuGet Packages
+```xml
+IdentityServer4
+IdentityServer4.AspNetIdentity
+Microsoft.AspNetCore.Identity.EntityFrameworkCore
+Microsoft.EntityFrameworkCore
+Microsoft.EntityFrameworkCore.Design
+Microsoft.EntityFrameworkCore.SqlServer
+```
+Package | Why we are using it?
+------------ | -------------
+IdentityServer4 | This is the core library Identity Server 4 
+IdentityServer4.AspNetIdentity | There are lot of ways to store user info on our application. The secure and recomended way is to use AspNetIdentity system
+Microsoft.EntityFrameworkCore | We are using EF Core 6 to access our databases
+Microsoft.AspNetCore.Identity.EntityFrameworkCore | EF Core 6 support for AspNEtCore Identity
+Microsoft.EntityFrameworkCore.Design | This is a design component required for EF Core 6 migrations and more
+Microsoft.EntityFrameworkCore.SqlServer | EF 6 Core Support for SQL Server. We are going to store our data on an SQL Server database
+#### Configure AppSettings.json
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft": "Warning",
+      "Microsoft.Hosting.Lifetime": "Information"
+    }
+  },
+
+  "AllowedHosts": "*",
+
+  "ConnectionStrings": {
+    "TIS": "Server=DB_SERVER;Database=DATABASE;Trusted_Connection=True;"
+  },
+
+  "IdentityServer": {
+    "Scopes": [ "ScxWebApi", "ScxWebApiDev" ],
+    "Resources": [
+      {
+        "Name": "ScxWebApi",
+        "DisplayName": "Production Web API",
+        "Scopes": [ "ScxWebApi" ]
+      },
+      {
+        "Name": "ScxWebApiDev",
+        "DisplayName": "Development Web API",
+        "Scopes": [ "ScxWebApiDev" ]
+      }
+    ],
+    "Clients": [
+      {
+        "Name": "Postman Client",
+        "ClientId": "admin",
+        "ClientSecrets": [ "admin123" ],
+        "Scopes": [ "ScxWebApi", "ScxWebApiDev" ],
+        "GrandType": "ClientCredentials"
+      },
+
+      {
+        "Name": "Mobile Client",
+        "ClientId": "sangee",
+        "ClientSecrets": [ "sangee123" ],
+        "Scopes": [ "ScxWebApi", "ScxWebApiDev" ],
+        "GrandType": "ResourceOwnerPasswordAndClientCredentials"
+      }
+    ]
+  }
+
+}
+
+```
+Options | Why we are using it?
+------------ | -------------
+ConnectionStrings | Connection String to work with EF 6 Core
+IdentityServer -- Scopes | An array of all scopes (API Names) our Identity Server 4 need to handle
+IdentityServer -- Resources | A list of resources (API Infos) to be configured with Identity Server 4
+IdentityServer -- Clients | A list of clients and their allowed scopes and token mechanism
+#### Setup Startup.cs
+```csharp
+public void ConfigureServices(IServiceCollection services)
+        {
+            //Configure EF6
+            services.AddDbContext<AppDbContext>(config =>
+            {
+                config.UseSqlServer(Configuration.GetConnectionString("TIS"));
+            });
+
+            //Configure Identity
+            services.AddIdentity<IdentityUser, IdentityRole>(config =>
+            {
+                config.Password.RequiredLength = 4;
+                config.Password.RequireDigit = false;
+                config.Password.RequiredUniqueChars = 0;
+                config.Password.RequireNonAlphanumeric = false;
+                config.Password.RequireUppercase = false;
+                config.SignIn.RequireConfirmedEmail = false;
+            })                
+                .AddEntityFrameworkStores<AppDbContext>()
+                .AddDefaultTokenProviders();
+
+            //Configure IdentityServer
+            services.AddIdentityServer()
+                .AddInMemoryApiResources(Config.GetApiResources(Configuration))
+                .AddInMemoryClients(Config.GetApiClients(Configuration))
+                .AddInMemoryApiScopes(Config.GetApiScopes(Configuration))
+                .AddDeveloperSigningCredential()
+                .AddAspNetIdentity<IdentityUser>()
+                .AddCustomResourceOwnerPasswordValidaton();
+
+            services.AddControllersWithViews();
+        }
+        
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        {
+            app.UseHttpsRedirection();
+            app.UseStaticFiles();
+            app.UseRouting();
+            
+            //Use Identity Servr
+            app.UseIdentityServer();
+
+            app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapControllerRoute(
+                    name: "default",
+                    pattern: "{controller=Home}/{action=Index}/{id?}");
+            });
+        }
+```
+#### Identity Server Configurations
+Now we need to grab contents from AppSettings.json to be provided to Identity Server 4 in meaningfull format. Let's create a model similar to AppSettings.json provided above for parsing
+```csharp
+namespace IdentityServer.Configurations.Configs
+{
+    public class IdentityAppSettings
+    {
+        public List<IdentityResources> Resources { get; set; }
+        public List<string> Scopes { get; set; }
+        public List<IdentityClient> Clients { get; set; }
+    }
+
+    public class IdentityResources
+    {
+        public string Name { get; set; }
+        public string DisplayName { get; set; }
+        public List<string> Scopes { get; set; }
+    }
+
+    public class IdentityClient
+    {
+        public string Name { get; set; }
+        public string ClientId { get; set; }
+        public List<string> ClientSecrets { get; set; }
+        public string GrandType { get; set; }
+        public List<string> Scopes { get; set; }
+    }
+}
+```
+#### Identity Server Configurations II
+Now let's create a class that parses AppSettings.json and exposes config endpoints to be used in Startup.cs
+```csharp
+namespace IdentityServer.Configurations.Configs
+{
+    public static class Config
+    {
+
+        public static IEnumerable<ApiResource> GetApiResources(IConfiguration config)
+        {
+            var appsettingsResources = config.GetSection("IdentityServer:Resources").Get<IEnumerable<IdentityResources>>();
+            var resources = new List<ApiResource>();
+            foreach (var res in appsettingsResources)
+            {
+                resources.Add(new ApiResource(res.Name, res.DisplayName) { Scopes = res.Scopes });
+            }
+            return resources;
+        }
+
+        public static IEnumerable<Client> GetApiClients(IConfiguration config)
+        {
+            var appsettingsClients = config.GetSection("IdentityServer:Clients").Get<IEnumerable<IdentityClient>>();
+            var clients = new List<Client>();
+            foreach (var client in appsettingsClients)
+            {
+                var grandType = GrantTypes.ResourceOwnerPasswordAndClientCredentials;
+                switch (client.GrandType)
+                {
+                    case "ResourceOwnerPasswordAndClientCredentials":
+                        grandType = GrantTypes.ResourceOwnerPasswordAndClientCredentials;
+                        break;
+                    case "ClientCredentials":
+                        grandType = GrantTypes.ResourceOwnerPasswordAndClientCredentials;
+                        break;
+                } 
+                var clientSecrets = new List<Secret>();
+                foreach(var secret in client.ClientSecrets)
+                {
+                    clientSecrets.Add(new Secret(secret.Sha256()));
+                }
+                clients.Add(new Client
+                {
+                    ClientId = client.ClientId,
+                    ClientSecrets = clientSecrets,
+                    AllowedScopes = client.Scopes,
+                    AllowedGrantTypes = grandType,
+                    AccessTokenType = AccessTokenType.Jwt,
+                    AccessTokenLifetime = 120,
+                    IdentityTokenLifetime = 120,
+                    UpdateAccessTokenClaimsOnRefresh = true,
+                    SlidingRefreshTokenLifetime = 30,
+                    AllowOfflineAccess = true,
+                    RefreshTokenExpiration = TokenExpiration.Absolute,
+                    RefreshTokenUsage = TokenUsage.OneTimeOnly,
+                    AlwaysSendClientClaims = true,
+                    Enabled = true,
+                });
+            }
+            return clients;
+        }
+
+        public static IEnumerable<ApiScope> GetApiScopes(IConfiguration config)
+        {
+            var appsettingsScopes = config.GetSection("IdentityServer:Scopes").Get<IEnumerable<string>>();
+            var scopes = new List<ApiScope>();
+            foreach (var scope in appsettingsScopes)
+            {
+                scopes.Add(new ApiScope(scope));
+            }
+            return scopes;
+        }
+
+    }
+}
+```
+#### Setup Entity Framework Core 6
+Now create a DbContext class for EF 6 to operate
+```csharp
+namespace IdentityServer.Configurations.EF
+{
+    public class AppDbContext : IdentityDbContext
+    {
+        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+        {
+        }
+    }
+}
+
+```
+#### OverRide Resource Owner Password Validation Extension Methord
+Now we are going to implement custom "Resource Owner Password" validatior. There we try to check if the user is logged in or not using AspNet Identity. Let's create an extention methord that can be attached to IdentityServer builder in Startup.cs file
+```csharp
+namespace IdentityServer.Configurations.IdentityOverrides
+{
+    public static class ResourceOwnerPasswordValidatonExtension
+    {
+        public static IIdentityServerBuilder AddCustomResourceOwnerPasswordValidaton(this IIdentityServerBuilder builder)
+        {
+            builder.AddProfileService<ProfileService>();
+            builder.AddResourceOwnerValidator<ResourceOwnerPasswordValidator>();
+            return builder;
+        }
+    }
+}
+```
+#### Implement OverRide Resource Owner Password Validatior
+Let's Implement validator and profile service used by Identity Server 4
+```csharp
+namespace IdentityServer.Configurations.IdentityOverrides
+{
+    public class ResourceOwnerPasswordValidator : IResourceOwnerPasswordValidator
+    {
+        private readonly UserManager<IdentityUser> _userManager;
+        private readonly SignInManager<IdentityUser> _signinManager;
+        private readonly RoleManager<IdentityRole> _roleManager;
+
+        public ResourceOwnerPasswordValidator(UserManager<IdentityUser> userManager, SignInManager<IdentityUser> signinManager, RoleManager<IdentityRole> roleManager)
+        {
+            _userManager = userManager;
+            _signinManager = signinManager;
+            _roleManager = roleManager;
+        }
+
+        public async Task ValidateAsync(ResourceOwnerPasswordValidationContext context)
+        {
+            //Custom Validation
+            var user = await _userManager.FindByNameAsync(context.UserName);
+            if (user != null)
+            {
+                try
+                {
+                    var isLoggedIn = await _signinManager.PasswordSignInAsync(user, context.Password, false, lockoutOnFailure: false);
+                    if (isLoggedIn.Succeeded)
+                    {
+                        context.Result = new GrantValidationResult(user.Id, OidcConstants.AuthenticationMethods.Password);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.ToString());
+                }
+            }
+        }
+    }
+}
+```
+#### Create Profile Service
+We also need to create a profile service override
+```csharp
+namespace IdentityServer.Configurations.IdentityOverrides
+{
+    public class ProfileService : IProfileService
+    {
+        private readonly UserManager<IdentityUser> _userManager;
+
+        public ProfileService(UserManager<IdentityUser> userManager)
+        {
+            _userManager = userManager;
+        }
+
+        public async Task GetProfileDataAsync(ProfileDataRequestContext context)
+        {
+            var id = context.Subject.GetSubjectId();
+            var user = await _userManager.FindByIdAsync(id);
+            var claims = await _userManager.GetClaimsAsync(user) as List<Claim>;
+            claims.Add(new Claim("username", user.UserName));
+            context.IssuedClaims = claims;
+        }
+
+        public async Task IsActiveAsync(IsActiveContext context)
+        {
+            var sub = context.Subject.GetSubjectId();
+            var user = _userManager.FindByIdAsync(context.Subject.GetSubjectId());
+            context.IsActive = user != null;
+        }
+    }
+}
+```
